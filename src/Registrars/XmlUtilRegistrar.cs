@@ -7,7 +7,7 @@ namespace Soenneker.Utils.Xml.Registrars;
 public static class XmlUtilRegistrar
 {
     /// <summary>
-    /// Adds <see cref="IXmlUtil"/> as a scoped service.<para/>
+    /// Adds <see cref="IXmlUtil"/> as a scoped service. (Recommended)<para/>
     /// Shorthand for <code>services.TryAddScoped</code> <para/>
     /// </summary>
     public static void AddXmlUtilAsScoped(this IServiceCollection services)
@@ -16,7 +16,7 @@ public static class XmlUtilRegistrar
     }
 
     /// <summary>
-    /// Adds <see cref="IXmlUtil"/> as a singleton service. (Recommended).<para/>
+    /// Adds <see cref="IXmlUtil"/> as a singleton service.<para/>
     /// Shorthand for <code>services.TryAddSingleton</code> <para/>
     /// </summary>
     public static void AddXmlUtilAsSingleton(this IServiceCollection services)

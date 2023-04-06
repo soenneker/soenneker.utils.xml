@@ -6,6 +6,7 @@ using System.Xml.Linq;
 using System.Xml.Serialization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Soenneker.Extensions.String;
 using Soenneker.Utils.Xml.Abstract;
 
 namespace Soenneker.Utils.Xml;
@@ -63,13 +64,12 @@ public class XmlUtil : IXmlUtil
         return result;
     }
 
-    
     public T? Deserialize<T>(string str)
     {
         if (_log)
             _logger.LogDebug("XML deserializing string from: {from}", str);
 
-        if (string.IsNullOrEmpty(str))
+        if (str.IsNullOrEmpty())
             return default;
 
         var xs = new XmlSerializer(typeof(T));
