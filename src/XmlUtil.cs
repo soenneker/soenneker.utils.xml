@@ -4,8 +4,6 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Serialization;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Soenneker.Extensions.String;
 using Soenneker.Utils.Xml.Abstract;
 
@@ -14,21 +12,16 @@ namespace Soenneker.Utils.Xml;
 ///<inheritdoc cref="IXmlUtil"/>
 public class XmlUtil : IXmlUtil
 {
-    private readonly ILogger<XmlUtil> _logger;
-
-    private readonly bool _log;
-
-    public XmlUtil(ILogger<XmlUtil> logger, IConfiguration config)
+    /// <summary>
+    /// Accepts a nullable object... if null returns null.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="obj"></param>
+    /// <param name="encoding"></param>
+    /// <param name="removeNamespaces"></param>
+    /// <returns></returns>
+    public static string? Serialize<T>(T? obj, Encoding? encoding, bool removeNamespaces = true)
     {
-        _log = config.GetValue<bool>("Log:XmlSerialization");
-        _logger = logger;
-    }
-
-    public string? Serialize<T>(T? obj, Encoding? encoding, bool removeNamespaces = true)
-    {
-        if (_log)
-            _logger.LogDebug("XML serializing string start");
-
         if (obj is null)
             return null;
 
@@ -58,17 +51,14 @@ public class XmlUtil : IXmlUtil
 
         string result = doc.Declaration + doc.ToString();
 
-        if (_log)
-            _logger.LogDebug("XML serializing string result: {result}", result);
-
         return result;
     }
 
-    public T? Deserialize<T>(string str)
+    /// <summary>
+    /// Accepts a nullable object... if null returns null.
+    /// </summary>
+    public static T? Deserialize<T>(string? str)
     {
-        if (_log)
-            _logger.LogDebug("XML deserializing string from: {from}", str);
-
         if (str.IsNullOrEmpty())
             return default;
 
@@ -80,9 +70,6 @@ public class XmlUtil : IXmlUtil
         {
             obj = (T?) xs.Deserialize(reader);
         }
-
-        if (_log)
-            _logger.LogDebug("XML deserializing string completed");
 
         return obj;
     }
