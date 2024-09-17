@@ -21,7 +21,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\src\Soenneker.Utils.Xml.csproj" />
+        <ProjectReference Include="..\..\src\Soenneker.Utils.Xml.csproj" />
     </ItemGroup>
 
 </Project>
