@@ -5,12 +5,13 @@ using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Serialization;
 using Soenneker.Extensions.String;
-using Soenneker.Utils.Xml.Abstract;
 
 namespace Soenneker.Utils.Xml;
 
-///<inheritdoc cref="IXmlUtil"/>
-public class XmlUtil : IXmlUtil
+/// <summary>
+/// A utility library handling (de)serialization and other useful XML functionalities
+/// </summary>
+public static class XmlUtil
 {
     /// <summary>
     /// Accepts a nullable object... if null returns null.
