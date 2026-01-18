@@ -1,134 +1,225 @@
-﻿using System.IO;
-using System.Linq;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Diagnostics.Contracts;
+using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml;
-using System.Xml.Linq;
 using System.Xml.Serialization;
 using Soenneker.Extensions.String;
+using Soenneker.Utils.MemoryStream.Abstract;
 
 namespace Soenneker.Utils.Xml;
 
-/// <summary>
-/// A utility library handling (de)serialization and other useful XML functionalities
-/// </summary>
 public static class XmlUtil
 {
+    private static readonly ConcurrentDictionary<Type, XmlSerializer> _serializerCache = new();
+
+    private const string XsiNs = "http://www.w3.org/2001/XMLSchema-instance";
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static XmlSerializer GetSerializer(Type type)
+        => _serializerCache.GetOrAdd(type, static t => new XmlSerializer(t));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static XmlSerializer GetSerializer<T>()
+        => GetSerializer(typeof(T));
+
     /// <summary>
     /// Serialize to a string (returns null if <paramref name="obj"/> is null).
+    /// Uses pooled streams when <paramref name="memoryStreamUtil"/> is provided.
     /// </summary>
-    public static string? Serialize<T>(T? obj, Encoding? encoding, bool removeNamespaces = true)
+    [Pure]
+    public static string? Serialize<T>(
+        T? obj,
+        Encoding? encoding = null,
+        bool removeNamespaces = true,
+        bool removeXsiNilElements = true,
+        IMemoryStreamUtil? memoryStreamUtil = null)
     {
-        encoding ??= Encoding.UTF8;
-        XDocument? doc = SerializeToXDocument(obj, encoding, removeNamespaces);
-
-        if (doc is null)
+        if (obj is null)
             return null;
 
-        return doc.Declaration + doc.ToString();
+        encoding ??= Encoding.UTF8;
+
+        if (memoryStreamUtil is null)
+        {
+            // fallback: no pool available
+            using var ms = new System.IO.MemoryStream(capacity: 1024);
+            Serialize(obj, ms, encoding, removeNamespaces, removeXsiNilElements, leaveOpen: true, memoryStreamUtil: null);
+
+            return ms.TryGetBuffer(out ArraySegment<byte> seg)
+                ? encoding.GetString(seg.Array!, seg.Offset, (int)ms.Length)
+                : encoding.GetString(ms.ToArray());
+        }
+
+        using var output = memoryStreamUtil.GetSync();
+        Serialize(obj, output, encoding, removeNamespaces, removeXsiNilElements, leaveOpen: true, memoryStreamUtil);
+
+        if (output.TryGetBuffer(out ArraySegment<byte> outSeg))
+            return encoding.GetString(outSeg.Array!, outSeg.Offset, (int)output.Length);
+
+        return encoding.GetString(output.ToArray());
     }
 
     /// <summary>
     /// Serialize to a stream (no-op if <paramref name="obj"/> is null).
     /// </summary>
-    public static void Serialize<T>(T? obj, Stream destination, Encoding? encoding = null, bool removeNamespaces = true, bool leaveOpen = false)
+    public static void Serialize<T>(
+        T? obj,
+        Stream destination,
+        Encoding? encoding = null,
+        bool removeNamespaces = true,
+        bool removeXsiNilElements = true,
+        bool leaveOpen = false,
+        IMemoryStreamUtil? memoryStreamUtil = null)
     {
         if (obj is null)
             return;
 
+        if (destination is null)
+            throw new ArgumentNullException(nameof(destination));
+
         encoding ??= Encoding.UTF8;
 
-        XDocument doc = SerializeToXDocument(obj, encoding, removeNamespaces)!;
-
-        var settings = new XmlWriterSettings
+        // Fastest path: direct write, no temp.
+        if (!removeXsiNilElements)
         {
-            Encoding = encoding,
-            OmitXmlDeclaration = false,
-            CloseOutput = !leaveOpen,
-            Indent = false
-        };
+            WriteSerialized(obj, destination, encoding, removeNamespaces, leaveOpen);
+            return;
+        }
 
-        using var xw = XmlWriter.Create(destination, settings);
-        doc.WriteTo(xw);
-        xw.Flush();
+        // Filter path requires a temp buffer.
+        if (memoryStreamUtil is null)
+        {
+            using var temp = new System.IO.MemoryStream(capacity: 1024);
+            WriteSerialized(obj, temp, encoding, removeNamespaces, leaveOpen: true);
+            if (temp.CanSeek) temp.Position = 0;
+            FilterXsiNilElements(temp, destination, encoding, leaveOpenDestination: leaveOpen);
+            return;
+        }
+
+        using var pooledTemp = memoryStreamUtil.GetSync();
+        WriteSerialized(obj, pooledTemp, encoding, removeNamespaces, leaveOpen: true);
+        if (pooledTemp.CanSeek) pooledTemp.Position = 0;
+        FilterXsiNilElements(pooledTemp, destination, encoding, leaveOpenDestination: leaveOpen);
     }
+
     /// <summary>
-    /// Accepts a nullable object... if null returns null.
+    /// Accepts a nullable string; if null/empty returns default.
     /// </summary>
+    [Pure]
     public static T? Deserialize<T>(string? str)
     {
         if (str.IsNullOrEmpty())
             return default;
 
-        var xs = new XmlSerializer(typeof(T));
+        var xs = GetSerializer<T>();
 
-        T? obj;
-
-        using (TextReader reader = new StringReader(str))
+        using var sr = new StringReader(str);
+        using var xr = XmlReader.Create(sr, new XmlReaderSettings
         {
-            obj = (T?) xs.Deserialize(reader);
-        }
+            DtdProcessing = DtdProcessing.Prohibit
+        });
 
-        return obj;
+        return (T?)xs.Deserialize(xr);
     }
 
     /// <summary>
     /// Deserializes an object of type <typeparamref name="T"/> from a stream.
-    /// Stream position will be read from its current position. Honors XML encoding/declaration automatically.
     /// </summary>
-    /// <param name="source">Source stream containing XML.</param>
-    /// <param name="leaveOpen">Whether to leave <paramref name="source"/> open after reading.</param>
-    /// <returns>Deserialized object or default if stream is null/empty.</returns>
+    [Pure]
     public static T? Deserialize<T>(Stream? source, bool leaveOpen = false)
     {
         if (source is null)
             return default;
 
-        // If we can determine emptiness, short-circuit. If not seekable, let XmlSerializer handle it.
         if (source.CanSeek && source.Length - source.Position == 0)
             return default;
 
-        var xs = new XmlSerializer(typeof(T));
+        var xs = GetSerializer<T>();
 
-        var xrSettings = new XmlReaderSettings
+        using var xr = XmlReader.Create(source, new XmlReaderSettings
         {
-            CloseInput = !leaveOpen
-        };
+            CloseInput = !leaveOpen,
+            DtdProcessing = DtdProcessing.Prohibit
+        });
 
-        using var reader = XmlReader.Create(source, xrSettings);
-        return (T?)xs.Deserialize(reader);
+        return (T?)xs.Deserialize(xr);
     }
 
-    /// <summary>
-    /// Core: build an <see cref="XDocument"/> with declaration, optional namespace stripping,
-    /// and remove nodes marked <c>xsi:nil="true"</c>.
-    /// </summary>
-    private static XDocument? SerializeToXDocument<T>(T? obj, Encoding encoding, bool removeNamespaces)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void WriteSerialized<T>(
+        T obj,
+        Stream destination,
+        Encoding encoding,
+        bool removeNamespaces,
+        bool leaveOpen)
     {
-        if (obj is null)
-            return null;
-
-        var serializer = new XmlSerializer(typeof(T));
+        var serializer = GetSerializer<T>();
 
         XmlSerializerNamespaces? ns = null;
         if (removeNamespaces)
         {
             ns = new XmlSerializerNamespaces();
-            ns.Add("", "");
+            ns.Add(string.Empty, string.Empty);
         }
 
-        var doc = new XDocument { Declaration = new XDeclaration("1.0", encoding.HeaderName, null) };
-
-        using (XmlWriter writer = doc.CreateWriter())
+        var settings = new XmlWriterSettings
         {
-            serializer.Serialize(writer, obj, ns);
+            Encoding = encoding,
+            OmitXmlDeclaration = false,
+            Indent = false,
+            CloseOutput = !leaveOpen
+        };
+
+        using var xw = XmlWriter.Create(destination, settings);
+        serializer.Serialize(xw, obj, ns);
+        xw.Flush();
+    }
+
+    /// <summary>
+    /// Streaming filter: copies XML from <paramref name="input"/> to <paramref name="output"/>,
+    /// skipping any element with xsi:nil="true" or "1".
+    /// </summary>
+    private static void FilterXsiNilElements(
+        Stream input,
+        Stream output,
+        Encoding encoding,
+        bool leaveOpenDestination)
+    {
+        using var xr = XmlReader.Create(input, new XmlReaderSettings
+        {
+            CloseInput = false,
+            DtdProcessing = DtdProcessing.Prohibit,
+            IgnoreWhitespace = false
+        });
+
+        using var xw = XmlWriter.Create(output, new XmlWriterSettings
+        {
+            Encoding = encoding,
+            OmitXmlDeclaration = false,
+            Indent = false,
+            CloseOutput = !leaveOpenDestination
+        });
+
+        while (xr.Read())
+        {
+            if (xr.NodeType == XmlNodeType.Element)
+            {
+                string? nil = xr.GetAttribute("nil", XsiNs);
+
+                if (nil is not null &&
+                    (nil.Length == 1 ? nil[0] == '1' : nil.Equals("true", StringComparison.OrdinalIgnoreCase)))
+                {
+                    xr.Skip();
+                    continue;
+                }
+            }
+
+            xw.WriteNode(xr, defattr: false);
         }
 
-        // Strip xsi:nil elements
-        XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
-        doc.Descendants()
-            .Where(e => (bool?)e.Attribute(xsi + "nil") == true)
-            .Remove();
-
-        return doc;
+        xw.Flush();
     }
 }
