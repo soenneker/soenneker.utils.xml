@@ -1,6 +1,7 @@
-﻿using Soenneker.Extensions.String;
+using Soenneker.Extensions.String;
 using Soenneker.Utils.MemoryStream.Abstract;
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
@@ -27,6 +28,7 @@ namespace Soenneker.Utils.Xml;
 public static class XmlUtil
 {
     private static readonly ConcurrentDictionary<Type, XmlSerializer> _serializerCache = new();
+    private static readonly SearchValues<char> TruthyNilChars = SearchValues.Create("1Tt");
 
     private const string XsiNs = "http://www.w3.org/2001/XMLSchema-instance";
 
@@ -317,7 +319,7 @@ public static class XmlUtil
         if (value.Length == 1)
         {
             char c = value[0];
-            return c == '1' || c == 'T' || c == 't';
+            return TruthyNilChars.Contains(c);
         }
 
         return value.Equals("true", StringComparison.OrdinalIgnoreCase);
