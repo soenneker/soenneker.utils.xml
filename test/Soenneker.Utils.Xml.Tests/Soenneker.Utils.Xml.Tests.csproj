@@ -31,10 +31,5 @@
     <ItemGroup>
         <ProjectReference Include="..\..\src\Soenneker.Utils.Xml\Soenneker.Utils.Xml.csproj" />
     </ItemGroup>
-
-    <ItemGroup>
-        <Content Include="testconfig.json">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </Content>
-    </ItemGroup>
 </Project>
+
