@@ -1,19 +1,18 @@
 using System.Text;
 using System.Xml.Serialization;
-using Soenneker.Tests.FixturedUnit;
-using Xunit;
+using Soenneker.Tests.HostedUnit;
 
 
 namespace Soenneker.Utils.Xml.Tests;
 
-[Collection("Collection")]
-public class XmlUtilTests : FixturedUnitTest
+[ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
+public class XmlUtilTests : HostedUnitTest
 {
-    public XmlUtilTests(Fixture fixture, ITestOutputHelper output) : base(fixture, output)
+    public XmlUtilTests(Host host) : base(host)
     {
     }
 
-    [Fact]
+    [Test]
     public void Serialize_removes_xsi_nil_elements_by_default()
     {
         var xml = XmlUtil.Serialize(new Sample
@@ -29,7 +28,7 @@ public class XmlUtilTests : FixturedUnitTest
         Assert.Contains("<Required>hello</Required>", xml);
     }
 
-    [Fact]
+    [Test]
     public void Serialize_keeps_xsi_nil_elements_when_disabled()
     {
         var xml = XmlUtil.Serialize(new Sample
@@ -44,7 +43,7 @@ public class XmlUtilTests : FixturedUnitTest
         Assert.Contains("<Required>hello</Required>", xml);
     }
 
-    [Fact]
+    [Test]
     public void Deserialize_round_trip()
     {
         var original = new Sample
