@@ -28,9 +28,9 @@ namespace Soenneker.Utils.Xml;
 public static class XmlUtil
 {
     private static readonly ConcurrentDictionary<Type, XmlSerializer> _serializerCache = new();
-    private static readonly SearchValues<char> TruthyNilChars = SearchValues.Create("1Tt");
+    private static readonly SearchValues<char> _truthyNilChars = SearchValues.Create("1Tt");
 
-    private const string XsiNs = "http://www.w3.org/2001/XMLSchema-instance";
+    private const string _xsiNs = "http://www.w3.org/2001/XMLSchema-instance";
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static XmlSerializer GetSerializer(Type type)
@@ -284,7 +284,7 @@ public static class XmlUtil
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void RemoveXsiNilElementsInPlace(XDocument doc)
     {
-        XNamespace xsi = XsiNs;
+        XNamespace xsi = _xsiNs;
 
         List<XElement>? remove = null;
 
@@ -319,7 +319,7 @@ public static class XmlUtil
         if (value.Length == 1)
         {
             char c = value[0];
-            return TruthyNilChars.Contains(c);
+            return _truthyNilChars.Contains(c);
         }
 
         return value.Equals("true", StringComparison.OrdinalIgnoreCase);

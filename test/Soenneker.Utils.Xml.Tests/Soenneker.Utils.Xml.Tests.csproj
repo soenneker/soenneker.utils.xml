@@ -16,16 +16,10 @@
         </Content>
     </ItemGroup>
 
-<<<<<<< HEAD
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.Test" Version="4.0.314" />
-        <PackageReference Include="Soenneker.Tests.HostedUnit" Version="4.0.13" />
-        <PackageReference Include="TUnit" Version="1.37.24" />
-=======
-    <ItemGroup><PackageReference Include="Soenneker.Utils.Test" Version="4.0.314" />
-        <PackageReference Include="Soenneker.Tests.FixturedUnit" Version="4.0.2305" />
-        <PackageReference Include="xUnit.v3" Version="3.2.2" />
->>>>>>> 8d48f0738f613563ff458bfcdd99bd599f2e6a1d
+        <PackageReference Include="Soenneker.Utils.Test" Version="4.0.315" />
+        <PackageReference Include="Soenneker.Tests.HostedUnit" Version="4.0.14" />
+        <PackageReference Include="TUnit" Version="1.37.36" />
     </ItemGroup>
 
     <ItemGroup>
