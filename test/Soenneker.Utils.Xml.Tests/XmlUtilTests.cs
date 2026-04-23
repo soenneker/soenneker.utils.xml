@@ -1,5 +1,6 @@
 using System.Text;
 using System.Xml.Serialization;
+using AwesomeAssertions;
 using Soenneker.Tests.HostedUnit;
 
 
@@ -21,11 +22,11 @@ public class XmlUtilTests : HostedUnitTest
             Optional = null
         }, Encoding.UTF8, removeNamespaces: true, removeXsiNilElements: true);
 
-        Assert.NotNull(xml);
-        Assert.DoesNotContain("nil=\"true\"", xml);
-        Assert.DoesNotContain("nil=\"1\"", xml);
-        Assert.DoesNotContain("<Optional", xml);
-        Assert.Contains("<Required>hello</Required>", xml);
+        xml.Should().NotBeNull();
+        xml.Should().NotContain("nil=\"true\"");
+        xml.Should().NotContain("nil=\"1\"");
+        xml.Should().NotContain("<Optional");
+        xml.Should().Contain("<Required>hello</Required>");
     }
 
     [Test]
@@ -37,10 +38,10 @@ public class XmlUtilTests : HostedUnitTest
             Optional = null
         }, Encoding.UTF8, removeNamespaces: true, removeXsiNilElements: false);
 
-        Assert.NotNull(xml);
-        Assert.True(xml.Contains("nil=\"true\"") || xml.Contains("nil=\"1\""));
-        Assert.Contains("<Optional", xml);
-        Assert.Contains("<Required>hello</Required>", xml);
+        xml.Should().NotBeNull();
+        (xml.Contains("nil=\"true\"") || xml.Contains("nil=\"1\"")).Should().BeTrue();
+        xml.Should().Contain("<Optional");
+        xml.Should().Contain("<Required>hello</Required>");
     }
 
     [Test]
@@ -55,9 +56,9 @@ public class XmlUtilTests : HostedUnitTest
         var xml = XmlUtil.Serialize(original, Encoding.UTF8, removeNamespaces: true, removeXsiNilElements: true);
         var result = XmlUtil.Deserialize<Sample>(xml);
 
-        Assert.NotNull(result);
-        Assert.Equal(original.Required, result!.Required);
-        Assert.Equal(original.Optional, result.Optional);
+        result.Should().NotBeNull();
+        result!.Required.Should().Be(original.Required);
+        result.Optional.Should().Be(original.Optional);
     }
 }
 
