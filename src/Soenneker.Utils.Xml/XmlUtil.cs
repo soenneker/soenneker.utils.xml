@@ -2,7 +2,6 @@ using Soenneker.Extensions.String;
 using Soenneker.Utils.MemoryStream.Abstract;
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.IO;
@@ -27,18 +26,21 @@ namespace Soenneker.Utils.Xml;
 /// </summary>
 public static class XmlUtil
 {
-    private static readonly ConcurrentDictionary<Type, XmlSerializer> _serializerCache = new();
+    private static readonly XmlSerializerNamespaces _emptyNamespaces = CreateEmptyNamespaces();
     private static readonly SearchValues<char> _truthyNilChars = SearchValues.Create("1Tt");
 
     private const string _xsiNs = "http://www.w3.org/2001/XMLSchema-instance";
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static XmlSerializer GetSerializer(Type type)
-        => _serializerCache.GetOrAdd(type, static t => new XmlSerializer(t));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static XmlSerializer GetSerializer<T>()
-        => GetSerializer(typeof(T));
+        => SerializerCache<T>.Instance;
+
+    private static XmlSerializerNamespaces CreateEmptyNamespaces()
+    {
+        var namespaces = new XmlSerializerNamespaces();
+        namespaces.Add(string.Empty, string.Empty);
+        return namespaces;
+    }
 
     /// <summary>
     /// Serialize to a string (returns null if <paramref name="obj"/> is null).
@@ -72,19 +74,17 @@ public static class XmlUtil
             return GetString(pooled, encoding);
         }
 
-        // Filter path (resilient): serialize->temp->XDocument filter->string
+        // The stream overload already performs the filter pass; decode its result directly.
         if (memoryStreamUtil is null)
         {
             using var temp = new System.IO.MemoryStream(capacity: 1024);
             Serialize(obj, temp, encoding, removeNamespaces, removeXsiNilElements: true, leaveOpen: true, memoryStreamUtil: null);
-            if (temp.CanSeek) temp.Position = 0;
-            return FilterXsiNilToString(temp, encoding);
+            return GetString(temp, encoding);
         }
 
         using var pooledTemp = memoryStreamUtil.GetSync();
         Serialize(obj, pooledTemp, encoding, removeNamespaces, removeXsiNilElements: true, leaveOpen: true, memoryStreamUtil);
-        if (pooledTemp.CanSeek) pooledTemp.Position = 0;
-        return FilterXsiNilToString(pooledTemp, encoding);
+        return GetString(pooledTemp, encoding);
     }
 
     /// <summary>
@@ -193,12 +193,7 @@ public static class XmlUtil
     {
         var serializer = GetSerializer<T>();
 
-        XmlSerializerNamespaces? ns = null;
-        if (removeNamespaces)
-        {
-            ns = new XmlSerializerNamespaces();
-            ns.Add(string.Empty, string.Empty);
-        }
+        XmlSerializerNamespaces? ns = removeNamespaces ? _emptyNamespaces : null;
 
         var settings = new XmlWriterSettings
         {
@@ -332,12 +327,5 @@ public static class XmlUtil
             return encoding.GetString(seg.Array!, seg.Offset, (int)ms.Length);
 
         return encoding.GetString(ms.ToArray());
-    }
-
-    private static string FilterXsiNilToString(Stream input, Encoding encoding)
-    {
-        using var output = new System.IO.MemoryStream(capacity: 1024);
-        FilterXsiNilElements(input, output, encoding, leaveOpenDestination: true);
-        return GetString(output, encoding);
     }
 }
