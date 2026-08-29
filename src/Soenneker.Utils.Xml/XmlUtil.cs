@@ -46,6 +46,7 @@ public static class XmlUtil
     /// Serialize to a string (returns null if <paramref name="obj"/> is null).
     /// Uses pooled streams when <paramref name="memoryStreamUtil"/> is provided.
     /// </summary>
+    /// <returns>Serialize to a string (returns null if <paramref name="obj"/> is null). Uses pooled streams when <paramref name="memoryStreamUtil"/> is provided.</returns>
     [Pure]
     public static string? Serialize<T>(
         T? obj,
@@ -133,6 +134,7 @@ public static class XmlUtil
     /// <summary>
     /// Accepts a nullable string; if null/empty returns default.
     /// </summary>
+    /// <returns>Accepts a nullable string; if null/empty returns default.</returns>
     [Pure]
     public static T? Deserialize<T>(string? str)
     {
@@ -161,6 +163,7 @@ public static class XmlUtil
     /// Deserializes an object of type <typeparamref name="T"/> from a stream.
     /// Stream position will be read from its current position. Honors XML encoding/declaration automatically.
     /// </summary>
+    /// <returns>Deserializes an object of type <typeparamref name="T"/> from a stream. Stream position will be read from its current position. Honors XML encoding/declaration automatically.</returns>
     [Pure]
     public static T? Deserialize<T>(Stream? source, bool leaveOpen = false)
     {
