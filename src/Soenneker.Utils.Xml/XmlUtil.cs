@@ -222,60 +222,72 @@ public static class XmlUtil
         Encoding encoding,
         bool leaveOpenDestination)
     {
-        // Secure-ish reader settings for Load (even though input is typically our own serializer output).
-        var readerSettings = new XmlReaderSettings
-        {
-            CloseInput = false,
-            DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null,
-            IgnoreWhitespace = false,
-            IgnoreComments = false,
-            IgnoreProcessingInstructions = false
-        };
-
-        XDocument doc;
-
         try
         {
-            using var xr = XmlReader.Create(input, readerSettings);
-            doc = XDocument.Load(xr, LoadOptions.PreserveWhitespace);
+            // Secure-ish reader settings for Load (even though input is typically our own serializer output).
+            var readerSettings = new XmlReaderSettings
+            {
+                CloseInput = false,
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                IgnoreWhitespace = false,
+                IgnoreComments = false,
+                IgnoreProcessingInstructions = false
+            };
+
+            XDocument doc;
+
+            try
+            {
+                using var xr = XmlReader.Create(input, readerSettings);
+                doc = XDocument.Load(xr, LoadOptions.PreserveWhitespace);
+            }
+            catch (Exception e) when (e is XmlException or InvalidOperationException)
+            {
+                if (!input.CanSeek)
+                    throw;
+
+                input.Position = 0;
+                input.CopyTo(output);
+                return;
+            }
+
+            RemoveXsiNilElementsInPlace(doc);
+
+            var writerSettings = new XmlWriterSettings
+            {
+                Encoding = encoding,
+                OmitXmlDeclaration = false,
+                Indent = false,
+                CloseOutput = false,
+
+                // Important: avoids writer-state failures if doc ends up being "fragment-ish"
+                ConformanceLevel = ConformanceLevel.Auto
+            };
+
+            long outputStart = output.CanSeek ? output.Position : -1;
+
+            try
+            {
+                using var xw = XmlWriter.Create(output, writerSettings);
+                doc.Save(xw);
+                xw.Flush();
+            }
+            catch (Exception e) when (e is XmlException or InvalidOperationException)
+            {
+                if (!input.CanSeek || outputStart < 0)
+                    throw;
+
+                output.Position = outputStart;
+                output.SetLength(outputStart);
+                input.Position = 0;
+                input.CopyTo(output);
+            }
         }
-        catch (Exception e) when (e is XmlException or InvalidOperationException)
+        finally
         {
-            if (!input.CanSeek)
-                throw;
-
-            input.Position = 0;
-            input.CopyTo(output);
-            return;
-        }
-
-        RemoveXsiNilElementsInPlace(doc);
-
-        var writerSettings = new XmlWriterSettings
-        {
-            Encoding = encoding,
-            OmitXmlDeclaration = false,
-            Indent = false,
-            CloseOutput = !leaveOpenDestination,
-
-            // Important: avoids writer-state failures if doc ends up being "fragment-ish"
-            ConformanceLevel = ConformanceLevel.Auto
-        };
-
-        try
-        {
-            using var xw = XmlWriter.Create(output, writerSettings);
-            doc.Save(xw);
-            xw.Flush();
-        }
-        catch (Exception e) when (e is XmlException or InvalidOperationException)
-        {
-            if (!input.CanSeek)
-                throw;
-
-            input.Position = 0;
-            input.CopyTo(output);
+            if (!leaveOpenDestination)
+                output.Dispose();
         }
     }
 
