@@ -11,6 +11,7 @@
     <Project Path="src/Soenneker.Utils.Xml/Soenneker.Utils.Xml.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Soenneker.Utils.Xml.AotSmoke/Soenneker.Utils.Xml.AotSmoke.csproj" />
     <Project Path="test/Soenneker.Utils.Xml.Tests/Soenneker.Utils.Xml.Tests.csproj" />
   </Folder>
 </Solution>

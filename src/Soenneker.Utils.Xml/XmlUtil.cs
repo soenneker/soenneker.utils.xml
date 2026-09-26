@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -31,9 +32,11 @@ public static class XmlUtil
 
     private const string _xsiNs = "http://www.w3.org/2001/XMLSchema-instance";
 
+    [RequiresUnreferencedCode("XmlSerializer reflects over serialized members. Use SerializeWithWriter or DeserializeWithReader for trimming.")]
+    [RequiresDynamicCode("XmlSerializer requires runtime code generation. Use SerializeWithWriter or DeserializeWithReader for Native AOT.")]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static XmlSerializer GetSerializer<T>()
-        => SerializerCache<T>.Instance;
+        => SerializerCache<T>.Get();
 
     private static XmlSerializerNamespaces CreateEmptyNamespaces()
     {
@@ -47,14 +50,51 @@ public static class XmlUtil
     /// Uses pooled streams when <paramref name="memoryStreamUtil"/> is provided.
     /// </summary>
     /// <returns>Serialize to a string (returns null if <paramref name="obj"/> is null). Uses pooled streams when <paramref name="memoryStreamUtil"/> is provided.</returns>
+    [RequiresUnreferencedCode("XmlSerializer reflects over serialized members. Use SerializeWithWriter or DeserializeWithReader for trimming.")]
+    [RequiresDynamicCode("XmlSerializer requires runtime code generation. Use SerializeWithWriter or DeserializeWithReader for Native AOT.")]
     [Pure]
-    public static string? Serialize<T>(
+    public static string? Serialize<T>(T? obj, Encoding? encoding = null, bool removeNamespaces = true,
+        bool removeXsiNilElements = true, IMemoryStreamUtil? memoryStreamUtil = null)
+        => SerializeWithWriter(obj, (writer, value) => GetSerializer<T>().Serialize(writer, value, removeNamespaces ? _emptyNamespaces : null),
+            encoding, removeXsiNilElements, memoryStreamUtil);
+
+    /// <summary>Serializes an object to a stream using XmlSerializer. A null object is a no-op.</summary>
+    [RequiresUnreferencedCode("XmlSerializer reflects over serialized members. Use SerializeWithWriter or DeserializeWithReader for trimming.")]
+    [RequiresDynamicCode("XmlSerializer requires runtime code generation. Use SerializeWithWriter or DeserializeWithReader for Native AOT.")]
+    public static void Serialize<T>(T? obj, Stream destination, Encoding? encoding = null, bool removeNamespaces = true,
+        bool removeXsiNilElements = true, bool leaveOpen = false, IMemoryStreamUtil? memoryStreamUtil = null)
+        => SerializeWithWriter(obj, destination, (writer, value) => GetSerializer<T>().Serialize(writer, value, removeNamespaces ? _emptyNamespaces : null),
+            encoding, removeXsiNilElements, leaveOpen, memoryStreamUtil);
+
+    /// <summary>Deserializes XML using XmlSerializer. Null or empty input returns default.</summary>
+    [RequiresUnreferencedCode("XmlSerializer reflects over serialized members. Use SerializeWithWriter or DeserializeWithReader for trimming.")]
+    [RequiresDynamicCode("XmlSerializer requires runtime code generation. Use SerializeWithWriter or DeserializeWithReader for Native AOT.")]
+    [Pure]
+    public static T? Deserialize<T>(string? str)
+        => DeserializeWithReader(str, static reader => (T?)GetSerializer<T>().Deserialize(reader));
+
+    /// <summary>Deserializes XML from the current stream position using XmlSerializer.</summary>
+    [RequiresUnreferencedCode("XmlSerializer reflects over serialized members. Use SerializeWithWriter or DeserializeWithReader for trimming.")]
+    [RequiresDynamicCode("XmlSerializer requires runtime code generation. Use SerializeWithWriter or DeserializeWithReader for Native AOT.")]
+    [Pure]
+    public static T? Deserialize<T>(Stream? source, bool leaveOpen = false)
+        => DeserializeWithReader(source, static reader => (T?)GetSerializer<T>().Deserialize(reader), leaveOpen);
+
+    /// <summary>
+    /// Writes XML using a caller-supplied writer and returns the encoded XML string. A null object returns null.
+    /// </summary>
+    /// <remarks>The callback writes the complete root element, including namespaces, and must leave the writer open.
+    /// Use a callback without reflection or dynamic code for Native AOT. XML serialization attributes are not applied automatically.</remarks>
+    [Pure]
+    public static string? SerializeWithWriter<T>(
         T? obj,
+        Action<XmlWriter, T> writeXml,
         Encoding? encoding = null,
-        bool removeNamespaces = true,
         bool removeXsiNilElements = true,
         IMemoryStreamUtil? memoryStreamUtil = null)
     {
+        ArgumentNullException.ThrowIfNull(writeXml);
+
         if (obj is null)
             return null;
 
@@ -66,12 +106,12 @@ public static class XmlUtil
             if (memoryStreamUtil is null)
             {
                 using var ms = new System.IO.MemoryStream(capacity: 1024);
-                Serialize(obj, ms, encoding, removeNamespaces, removeXsiNilElements: false, leaveOpen: true, memoryStreamUtil: null);
+                SerializeWithWriter(obj, ms, writeXml, encoding, removeXsiNilElements: false, leaveOpen: true, memoryStreamUtil: null);
                 return GetString(ms, encoding);
             }
 
             using var pooled = memoryStreamUtil.GetSync();
-            Serialize(obj, pooled, encoding, removeNamespaces, removeXsiNilElements: false, leaveOpen: true, memoryStreamUtil);
+            SerializeWithWriter(obj, pooled, writeXml, encoding, removeXsiNilElements: false, leaveOpen: true, memoryStreamUtil);
             return GetString(pooled, encoding);
         }
 
@@ -79,28 +119,32 @@ public static class XmlUtil
         if (memoryStreamUtil is null)
         {
             using var temp = new System.IO.MemoryStream(capacity: 1024);
-            Serialize(obj, temp, encoding, removeNamespaces, removeXsiNilElements: true, leaveOpen: true, memoryStreamUtil: null);
+            SerializeWithWriter(obj, temp, writeXml, encoding, removeXsiNilElements: true, leaveOpen: true, memoryStreamUtil: null);
             return GetString(temp, encoding);
         }
 
         using var pooledTemp = memoryStreamUtil.GetSync();
-        Serialize(obj, pooledTemp, encoding, removeNamespaces, removeXsiNilElements: true, leaveOpen: true, memoryStreamUtil);
+        SerializeWithWriter(obj, pooledTemp, writeXml, encoding, removeXsiNilElements: true, leaveOpen: true, memoryStreamUtil);
         return GetString(pooledTemp, encoding);
     }
 
     /// <summary>
-    /// Serialize to a stream (no-op if <paramref name="obj"/> is null).
+    /// Writes XML using a caller-supplied writer (no-op if <paramref name="obj"/> is null).
     /// Uses direct streaming when <paramref name="removeXsiNilElements"/> is false; otherwise uses a resilient XDocument filter pass.
     /// </summary>
-    public static void Serialize<T>(
+    /// <remarks>The callback writes the complete root element, including namespaces, and must leave the writer open.
+    /// Use a callback without reflection or dynamic code for Native AOT.</remarks>
+    public static void SerializeWithWriter<T>(
         T? obj,
         Stream destination,
+        Action<XmlWriter, T> writeXml,
         Encoding? encoding = null,
-        bool removeNamespaces = true,
         bool removeXsiNilElements = true,
         bool leaveOpen = false,
         IMemoryStreamUtil? memoryStreamUtil = null)
     {
+        ArgumentNullException.ThrowIfNull(writeXml);
+
         if (obj is null)
             return;
 
@@ -111,7 +155,7 @@ public static class XmlUtil
         // Fast path: direct serialize to destination (no temp / no DOM).
         if (!removeXsiNilElements)
         {
-            WriteSerialized(obj, destination, encoding, removeNamespaces, leaveOpen);
+            WriteSerialized(obj, destination, encoding, writeXml, leaveOpen);
             return;
         }
 
@@ -119,33 +163,35 @@ public static class XmlUtil
         if (memoryStreamUtil is null)
         {
             using var temp = new System.IO.MemoryStream(capacity: 1024);
-            WriteSerialized(obj, temp, encoding, removeNamespaces, leaveOpen: true);
+            WriteSerialized(obj, temp, encoding, writeXml, leaveOpen: true);
             if (temp.CanSeek) temp.Position = 0;
             FilterXsiNilElements(temp, destination, encoding, leaveOpenDestination: leaveOpen);
             return;
         }
 
         using var pooledTemp = memoryStreamUtil.GetSync();
-        WriteSerialized(obj, pooledTemp, encoding, removeNamespaces, leaveOpen: true);
+        WriteSerialized(obj, pooledTemp, encoding, writeXml, leaveOpen: true);
         if (pooledTemp.CanSeek) pooledTemp.Position = 0;
         FilterXsiNilElements(pooledTemp, destination, encoding, leaveOpenDestination: leaveOpen);
     }
 
     /// <summary>
-    /// Accepts a nullable string; if null/empty returns default.
+    /// Reads XML using a caller-supplied reader callback; null/empty input returns default.
     /// </summary>
     /// <returns>Accepts a nullable string; if null/empty returns default.</returns>
+    /// <remarks>The callback receives a reader before its first node and must consume the desired XML without retaining the reader.
+    /// DTD processing is prohibited. Use a callback without reflection or dynamic code for Native AOT.</remarks>
     [Pure]
-    public static T? Deserialize<T>(string? str)
+    public static T? DeserializeWithReader<T>(string? str, Func<XmlReader, T> readXml)
     {
+        ArgumentNullException.ThrowIfNull(readXml);
+
         if (str.IsNullOrEmpty())
             return default;
 
         // Trim UTF-8 BOM if present
         if (str.Length > 0 && str[0] == '\uFEFF')
             str = str.TrimStart('\uFEFF');
-
-        var xs = GetSerializer<T>();
 
         var settings = new XmlReaderSettings
         {
@@ -156,24 +202,26 @@ public static class XmlUtil
         using var sr = new StringReader(str);
         using var xr = XmlReader.Create(sr, settings);
 
-        return (T?)xs.Deserialize(xr);
+        return readXml(xr);
     }
 
     /// <summary>
-    /// Deserializes an object of type <typeparamref name="T"/> from a stream.
+    /// Uses a caller-supplied reader callback to deserialize an object of type <typeparamref name="T"/> from a stream.
     /// Stream position will be read from its current position. Honors XML encoding/declaration automatically.
     /// </summary>
     /// <returns>Deserializes an object of type <typeparamref name="T"/> from a stream. Stream position will be read from its current position. Honors XML encoding/declaration automatically.</returns>
+    /// <remarks>The callback receives a reader before its first node and must consume the desired XML without retaining the reader.
+    /// DTD processing is prohibited. Use a callback without reflection or dynamic code for Native AOT.</remarks>
     [Pure]
-    public static T? Deserialize<T>(Stream? source, bool leaveOpen = false)
+    public static T? DeserializeWithReader<T>(Stream? source, Func<XmlReader, T> readXml, bool leaveOpen = false)
     {
+        ArgumentNullException.ThrowIfNull(readXml);
+
         if (source is null)
             return default;
 
         if (source.CanSeek && source.Length - source.Position == 0)
             return default;
-
-        var xs = GetSerializer<T>();
 
         var settings = new XmlReaderSettings
         {
@@ -183,7 +231,7 @@ public static class XmlUtil
         };
 
         using var reader = XmlReader.Create(source, settings);
-        return (T?)xs.Deserialize(reader);
+        return readXml(reader);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -191,13 +239,9 @@ public static class XmlUtil
         T obj,
         Stream destination,
         Encoding encoding,
-        bool removeNamespaces,
+        Action<XmlWriter, T> writeXml,
         bool leaveOpen)
     {
-        var serializer = GetSerializer<T>();
-
-        XmlSerializerNamespaces? ns = removeNamespaces ? _emptyNamespaces : null;
-
         var settings = new XmlWriterSettings
         {
             Encoding = encoding,
@@ -208,7 +252,7 @@ public static class XmlUtil
         };
 
         using var xw = XmlWriter.Create(destination, settings);
-        serializer.Serialize(xw, obj, ns);
+        writeXml(xw, obj);
         xw.Flush();
     }
 

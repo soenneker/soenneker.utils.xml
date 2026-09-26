@@ -40,5 +40,11 @@ jobs:
       - name: Test
         run: dotnet test --project test/Soenneker.Utils.Xml.Tests/Soenneker.Utils.Xml.Tests.csproj --configuration Release --no-build --no-restore --verbosity minimal
 
+      - name: Publish Native AOT smoke app
+        run: dotnet publish test/Soenneker.Utils.Xml.AotSmoke/Soenneker.Utils.Xml.AotSmoke.csproj --configuration Release --runtime linux-x64 --output artifacts/aot-smoke --verbosity minimal
+
+      - name: Test Native AOT XML callbacks
+        run: ./artifacts/aot-smoke/Soenneker.Utils.Xml.AotSmoke
+
       - name: Pack
         run: dotnet pack src/Soenneker.Utils.Xml/Soenneker.Utils.Xml.csproj --configuration Release --no-build --no-restore --output . --verbosity minimal
