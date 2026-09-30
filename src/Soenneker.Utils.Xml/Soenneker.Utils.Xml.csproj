@@ -43,6 +43,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.MemoryStream" Version="4.0.1569" />
+        <PackageReference Include="Soenneker.Utils.MemoryStream" Version="4.0.1570" />
     </ItemGroup>
 </Project>
