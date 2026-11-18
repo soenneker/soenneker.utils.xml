@@ -338,17 +338,18 @@ public static class XmlUtil
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void RemoveXsiNilElementsInPlace(XDocument doc)
     {
-        XNamespace xsi = _xsiNs;
+        XName xsiNil = XName.Get("nil", _xsiNs);
+        XName nil = "nil";
 
         List<XElement>? remove = null;
 
         foreach (XElement element in doc.Descendants())
         {
             // Primary: xsi:nil
-            XAttribute? attr = element.Attribute(xsi + "nil");
+            XAttribute? attr = element.Attribute(xsiNil);
 
             // Some payloads may have "nil" without namespace; keep fallback for resilience.
-            attr ??= element.Attribute("nil");
+            attr ??= element.Attribute(nil);
 
             if (attr is null)
                 continue;
